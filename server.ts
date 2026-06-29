@@ -12,7 +12,42 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 const app = express();
 const PORT = 3000;
-const DB_FILE = path.join(process.cwd(), 'users_db.json');
+
+const isVercel = !!process.env.VERCEL;
+const storageDir = isVercel ? '/tmp' : process.cwd();
+
+// Copy default database files to /tmp for writing if running on Vercel
+function initVercelStorage() {
+  if (!isVercel) return;
+  const filesToCopy = [
+    'users_db.json',
+    'shopee_settings.json',
+    'transactions_db.json',
+    'products_db.json',
+    'activity_products_db.json',
+    'match_requests_db.json'
+  ];
+  for (const filename of filesToCopy) {
+    const src = path.join(process.cwd(), filename);
+    const dest = path.join('/tmp', filename);
+    if (!fs.existsSync(dest)) {
+      try {
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, dest);
+          console.log(`[Vercel Storage] Copied ${filename} to /tmp`);
+        } else {
+          fs.writeFileSync(dest, filename === 'shopee_settings.json' ? '{}' : '[]', 'utf-8');
+          console.log(`[Vercel Storage] Created default empty ${filename} in /tmp`);
+        }
+      } catch (err) {
+        console.error(`[Vercel Storage] Failed to init ${filename} in /tmp:`, err);
+      }
+    }
+  }
+}
+initVercelStorage();
+
+const DB_FILE = path.join(storageDir, 'users_db.json');
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -98,7 +133,7 @@ interface SystemSettings {
   flashdealSubLabel?: string;
 }
 
-const SETTINGS_FILE = path.join(process.cwd(), 'shopee_settings.json');
+const SETTINGS_FILE = path.join(storageDir, 'shopee_settings.json');
 
 const DEFAULT_SETTINGS: SystemSettings = {
   siteName: 'Shopee',
@@ -255,7 +290,7 @@ function saveSettings(settings: SystemSettings): boolean {
   }
 }
 
-const TRANSACTIONS_FILE = path.join(process.cwd(), 'transactions_db.json');
+const TRANSACTIONS_FILE = path.join(storageDir, 'transactions_db.json');
 
 interface Transaction {
   id: string;
@@ -304,9 +339,9 @@ function saveTransactions(txs: Transaction[]): boolean {
 let usersCache = loadUsers();
 let settingsCache = loadSettings();
 
-const PRODUCTS_FILE = path.join(process.cwd(), 'products_db.json');
-const ACTIVITY_PRODUCTS_FILE = path.join(process.cwd(), 'activity_products_db.json');
-const MATCH_REQUESTS_FILE = path.join(process.cwd(), 'match_requests_db.json');
+const PRODUCTS_FILE = path.join(storageDir, 'products_db.json');
+const ACTIVITY_PRODUCTS_FILE = path.join(storageDir, 'activity_products_db.json');
+const MATCH_REQUESTS_FILE = path.join(storageDir, 'match_requests_db.json');
 
 interface MatchRequest {
   phone: string;
@@ -550,7 +585,7 @@ loadActivityProducts();
 loadMatchRequests();
 
 // --- UPLOADS DIRECTORY & ENDPOINT ---
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+const UPLOADS_DIR = path.join(storageDir, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
@@ -1666,4 +1701,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!isVercel) {
+  startServer();
+}
+
+export default app;
